@@ -278,7 +278,58 @@ public class WebCacheServer {
     static void save(String url, String html, String source) {
         CachedPage p = new CachedPage(url, extractTitle(html, url), html, source);
         CACHE.put(url, p);
-        try { Files.writeString(STORAGE.resolve(fileName(url)), html, StandardCharsets.UTF_8); } catch (Exception ignored) {}
+        // Tu tao folder + file .html moi khi save
+        try {
+            Files.createDirectories(STORAGE);
+            Files.writeString(STORAGE.resolve(fileName(url)), html, StandardCharsets.UTF_8);
+        } catch (Exception e) { log("khong ghi duoc file cache: " + e.getMessage()); }
+    }
+
+    /**
+     * Nhap 1 folder co nhieu file .html/.htm vao kho (chay het tat ca file).
+     * - Duyet de quy, doc moi file, tu nhan URL goc neu co marker <!-- URL: ... -->
+     *   hoac <link rel="canonical">, con lai dat la local://ten-file
+     * - Copy file vao storage/ de lan sau restart van con
+     * @return so file nhap thanh cong
+     */
+    public static int importFolder(Path dir) {
+        if (dir == null || !Files.isDirectory(dir)) return 0;
+        int count = 0;
+        try (var walk = Files.walk(dir)) {
+            var files = walk.filter(p -> Files.isRegularFile(p))
+                    .filter(p -> { String n = p.getFileName().toString().toLowerCase(); return n.endsWith(".html") || n.endsWith(".htm"); })
+                    .sorted().toList();
+            for (Path f : files) {
+                try {
+                    String html = Files.readString(f, StandardCharsets.UTF_8);
+                    if (html.isBlank()) continue;
+                    String url = detectUrl(html, f);
+                    CachedPage p = new CachedPage(url, extractTitle(html, f.getFileName().toString()), html, "import");
+                    CACHE.put(url, p);
+                    try {
+                        Files.createDirectories(STORAGE);
+                        Path dest = STORAGE.resolve(fileName(url));
+                        if (!Files.exists(dest) || !f.toAbsolutePath().equals(dest.toAbsolutePath()))
+                            Files.writeString(dest, html, StandardCharsets.UTF_8);
+                    } catch (Exception ignored) {}
+                    count++;
+                    log("IMPORT " + f.getFileName() + " -> " + url);
+                } catch (Exception e) { log("IMPORT loi " + f + ": " + e.getMessage()); }
+            }
+        } catch (Exception e) { log("IMPORT loi duyet folder: " + e.getMessage()); }
+        log("IMPORT xong: " + count + " file tu " + dir);
+        return count;
+    }
+
+    /** Doan URL goc cua file html: marker <!-- URL: ... -->, canonical, khong co thi local://... */
+    static String detectUrl(String html, Path file) {
+        try {
+            Matcher m = Pattern.compile("(?i)<!--\\s*URL:\\s*(\\S+)\\s*-->").matcher(html);
+            if (m.find()) return normalize(m.group(1));
+            Matcher c = Pattern.compile("(?i)<link[^>]+rel=[\"']canonical[\"'][^>]+href=[\"']([^\"']+)[\"']").matcher(html);
+            if (c.find()) return normalize(c.group(1));
+        } catch (Exception ignored) {}
+        return "local://" + file.getFileName().toString();
     }
 
     static String normalize(String url) {

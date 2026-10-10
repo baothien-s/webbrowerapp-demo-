@@ -78,12 +78,15 @@ public class ServerManagerGUI extends JFrame {
         JPanel left = new JPanel(new BorderLayout());
         left.add(new JLabel("  Kho web (click de coi):"), BorderLayout.NORTH);
         left.add(lp, BorderLayout.CENTER);
-        JPanel lbtns = new JPanel(new GridLayout(2, 2, 4, 4));
+        JPanel lbtns = new JPanel(new GridLayout(3, 2, 4, 4));
         JButton btnReload = new JButton("Tai lai list");
         JButton btnAdd = new JButton("Them URL...");
         JButton btnFetch = new JButton("Fetch live");
         JButton btnDel = new JButton("Xoa");
+        JButton btnImport = new JButton("Nhap folder...");
+        JButton btnOpenDir = new JButton("Mo folder");
         lbtns.add(btnReload); lbtns.add(btnAdd); lbtns.add(btnFetch); lbtns.add(btnDel);
+        lbtns.add(btnImport); lbtns.add(btnOpenDir);
         left.add(lbtns, BorderLayout.SOUTH);
 
         // ---- phai: tabs ----
@@ -120,6 +123,8 @@ public class ServerManagerGUI extends JFrame {
         btnAdd.addActionListener(e -> doAdd());
         btnFetch.addActionListener(e -> doFetchSelected());
         btnDel.addActionListener(e -> doDeleteSelected());
+        btnImport.addActionListener(e -> doImportFolder());
+        btnOpenDir.addActionListener(e -> doOpenFolder());
     }
 
     private void doStart() {
@@ -215,6 +220,37 @@ public class ServerManagerGUI extends JFrame {
         if (i < 0 || i >= rows.size()) return;
         WebCacheServer.deleteUrl(rows.get(i).url);
         refreshAll(true);
+    }
+
+    /** Chon 1 folder -> nap het tat ca file .html/.htm trong do vao kho */
+    private void doImportFolder() {
+        JFileChooser fc = new JFileChooser();
+        fc.setDialogTitle("Chon folder chua file HTML");
+        fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        java.io.File dir = fc.getSelectedFile();
+        lblEntry.setText("Dang nhap folder: " + dir.getAbsolutePath() + " ...");
+        new SwingWorker<Integer, Void>() {
+            @Override protected Integer doInBackground() {
+                return WebCacheServer.importFolder(dir.toPath());
+            }
+            @Override protected void done() {
+                try {
+                    int n = get();
+                    JOptionPane.showMessageDialog(ServerManagerGUI.this, "Da nhap " + n + " file HTML vao kho.");
+                } catch (Exception ex) { JOptionPane.showMessageDialog(ServerManagerGUI.this, "Loi: " + ex.getMessage()); }
+                refreshAll(true);
+            }
+        }.execute();
+    }
+
+    /** Mo folder storage/ tren Windows Explorer de coi file .html da luu */
+    private void doOpenFolder() {
+        try {
+            java.nio.file.Path dir = java.nio.file.Paths.get("storage").toAbsolutePath();
+            java.nio.file.Files.createDirectories(dir);
+            if (Desktop.isDesktopSupported()) Desktop.getDesktop().open(dir.toFile());
+        } catch (Exception ex) { JOptionPane.showMessageDialog(this, "Khong mo duoc folder: " + ex.getMessage()); }
     }
 
     private void appendLog(String s) { txtLog.append(s + "\n"); }

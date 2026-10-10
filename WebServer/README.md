@@ -41,5 +41,10 @@ thêm URL / fetch live / xóa cache, log server realtime.
 Lý do snapshot: Facebook/Shopee/Alibaba chặn bot + cần login/JS nên không fetch live ổn định.
 Các web tĩnh như `https://example.com/` thì server tải live bình thường.
 
-## Lưu trữ
-Thư mục `storage/` chứa file `.html` của từng URL (tạo tự động, nạp lại khi restart).
+## Lưu trữ (folder storage/)
+- Mỗi lần save (fetch live / client bấm Lưu / GUI thêm URL) app **tự tạo folder `storage/` + 1 file `.html`** cho URL đó.
+- Restart server tự nạp lại hết file trong `storage/`.
+- GUI có nút **Nhập folder...**: chọn 1 folder bất kỳ chứa nhiều file `.html/.htm` -> nạp hết vào kho.
+  App tự nhận URL gốc nếu file có marker `<!-- URL: https://... -->` hoặc `<link rel="canonical">`,
+  không có thì đặt `local://ten-file`.
+- Nút **Mở folder**: mở `storage/` trên Explorer để coi file trực tiếp.

@@ -101,10 +101,12 @@ public class WebCacheServer {
         server.start();
         RUNNING = server;
         log("Server START port " + port + " (" + CACHE.size() + " web trong kho)");
+        startWatcher(STORAGE); // tha file html vao storage/ la tu nap
         return server;
     }
 
     public static synchronized void stopServer() {
+        stopWatcher();
         if (RUNNING != null) {
             RUNNING.stop(0);
             RUNNING = null;
@@ -300,25 +302,98 @@ public class WebCacheServer {
                     .filter(p -> { String n = p.getFileName().toString().toLowerCase(); return n.endsWith(".html") || n.endsWith(".htm"); })
                     .sorted().toList();
             for (Path f : files) {
-                try {
-                    String html = Files.readString(f, StandardCharsets.UTF_8);
-                    if (html.isBlank()) continue;
-                    String url = detectUrl(html, f);
-                    CachedPage p = new CachedPage(url, extractTitle(html, f.getFileName().toString()), html, "import");
-                    CACHE.put(url, p);
-                    try {
-                        Files.createDirectories(STORAGE);
-                        Path dest = STORAGE.resolve(fileName(url));
-                        if (!Files.exists(dest) || !f.toAbsolutePath().equals(dest.toAbsolutePath()))
-                            Files.writeString(dest, html, StandardCharsets.UTF_8);
-                    } catch (Exception ignored) {}
-                    count++;
-                    log("IMPORT " + f.getFileName() + " -> " + url);
-                } catch (Exception e) { log("IMPORT loi " + f + ": " + e.getMessage()); }
+                String url = importFile(f, "import");
+                if (url != null) count++;
             }
         } catch (Exception e) { log("IMPORT loi duyet folder: " + e.getMessage()); }
         log("IMPORT xong: " + count + " file tu " + dir);
         return count;
+    }
+
+    /**
+     * Nap 1 file .html/.htm vao kho (dung chung cho nhap folder + watcher tu dong).
+     * @return URL da nap, null neu loi/file rong
+     */
+    static String importFile(Path f, String source) {
+        try {
+            // File vua copy co the chua ghi xong -> doi toi da ~2s
+            String html = null;
+            for (int i = 0; i < 10; i++) {
+                try { html = Files.readString(f, StandardCharsets.UTF_8); } catch (Exception e) { html = null; }
+                if (html != null && !html.isBlank()) break;
+                try { Thread.sleep(200); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+            if (html == null || html.isBlank()) return null;
+            String url = detectUrl(html, f);
+            CachedPage p = new CachedPage(url, extractTitle(html, f.getFileName().toString()), html, source);
+            CACHE.put(url, p);
+            try {
+                Files.createDirectories(STORAGE);
+                Path dest = STORAGE.resolve(fileName(url));
+                if (!Files.exists(dest) || !f.toAbsolutePath().equals(dest.toAbsolutePath()))
+                    Files.writeString(dest, html, StandardCharsets.UTF_8);
+            } catch (Exception ignored) {}
+            log("IMPORT " + f.getFileName() + " -> " + url);
+            return url;
+        } catch (Exception e) { log("IMPORT loi " + f + ": " + e.getMessage()); return null; }
+    }
+
+    // Watcher: file html moi tha vao folder -> tu nap vao kho
+    static volatile WatchService WATCHER = null;
+    static volatile Thread WATCH_THREAD = null;
+
+    /** Theo doi folder (de quy): file .html/.htm moi/sua -> tu nap vao kho, khong can restart */
+    public static synchronized void startWatcher(Path dir) {
+        stopWatcher();
+        try {
+            Files.createDirectories(dir);
+            WatchService ws = FileSystems.getDefault().newWatchService();
+            registerAll(ws, dir);
+            WATCHER = ws;
+            Thread t = new Thread(() -> watchLoop(ws, dir), "folder-watcher");
+            t.setDaemon(true);
+            WATCH_THREAD = t;
+            t.start();
+            log("WATCH folder: " + dir.toAbsolutePath() + " (tha file .html vao la tu nap)");
+        } catch (Exception e) { log("WATCH loi: " + e.getMessage()); }
+    }
+
+    static void registerAll(WatchService ws, Path dir) throws java.io.IOException {
+        try (var walk = Files.walk(dir)) {
+            walk.filter(Files::isDirectory).forEach(d -> {
+                try { d.register(ws, StandardWatchEventKinds.ENTRY_CREATE, StandardWatchEventKinds.ENTRY_MODIFY); }
+                catch (Exception ignored) {}
+            });
+        }
+    }
+
+    static void watchLoop(WatchService ws, Path root) {
+        while (WATCHER == ws) {
+            WatchKey key;
+            try { key = ws.take(); } catch (Exception e) { break; }
+            for (WatchEvent<?> ev : key.pollEvents()) {
+                if (ev.kind() == StandardWatchEventKinds.OVERFLOW) continue;
+                try {
+                    Path ctx = (Path) ev.context();
+                    Path child = ((Path) key.watchable()).resolve(ctx);
+                    if (Files.isDirectory(child)) {
+                        try { registerAll(ws, child); } catch (Exception ignored) {}
+                        continue;
+                    }
+                    String n = child.getFileName().toString().toLowerCase();
+                    if (n.endsWith(".html") || n.endsWith(".htm")) {
+                        // Cho file ghi xong roi nap (chay nen de khoi treo server)
+                        new Thread(() -> importFile(child, "watch"), "watch-import").start();
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (!key.reset()) break;
+        }
+    }
+
+    public static synchronized void stopWatcher() {
+        WATCH_THREAD = null;
+        if (WATCHER != null) { try { WATCHER.close(); } catch (Exception ignored) {} WATCHER = null; }
     }
 
     /** Doan URL goc cua file html: marker <!-- URL: ... -->, canonical, khong co thi local://... */

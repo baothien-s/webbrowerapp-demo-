@@ -48,3 +48,10 @@ Các web tĩnh như `https://example.com/` thì server tải live bình thườn
   App tự nhận URL gốc nếu file có marker `<!-- URL: https://... -->` hoặc `<link rel="canonical">`,
   không có thì đặt `local://ten-file`.
 - Nút **Mở folder**: mở `storage/` trên Explorer để coi file trực tiếp.
+
+## Tự động nạp file mới (watcher)
+- Server **tự theo dõi folder `storage/`**: chỉ cần copy/thả 1 file `.html` vào là app **tự setup**,
+  nạp ngay vào kho (log `IMPORT ... -> ...`, nguồn `watch`), không cần restart hay bấm gì thêm.
+  GUI đang mở cũng tự thấy sau ~2s (chế độ tự refresh).
+- Muốn file nhận đúng URL gốc thì chèn marker `<!-- URL: https://... -->` hoặc `<link rel="canonical">`
+  trong `<head>`, không có thì app đặt `local://ten-file`.

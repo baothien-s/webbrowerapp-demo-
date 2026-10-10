@@ -1,0 +1,14 @@
+# Java build output
+*.class
+out/
+bin/
+
+# Server cache (tu tao lai khi chay, da co preload san)
+WebServer/storage/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml

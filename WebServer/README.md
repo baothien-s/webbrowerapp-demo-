@@ -1,6 +1,6 @@
 # VERSION 1 - WebCacheServer (kho lưu trữ web HTTP)
 
-## Chạy
+## Chạy console
 ```bat
 run_server.bat
 ```
@@ -10,6 +10,19 @@ javac WebCacheServer.java
 java WebCacheServer        :: port 8080
 ```
 Dashboard: `http://localhost:8080/` (mở bằng Chrome)
+
+## Chạy GUI quản lý (khuyên dùng)
+```bat
+run_server_gui.bat
+```
+hoặc:
+```bat
+javac WebCacheServer.java ServerManagerGUI.java
+java ServerManagerGUI
+```
+GUI gồm: nút Start/Stop + đèn trạng thái, thống kê Requests/HIT/MISS,
+danh sách web trong kho (click để xem nhanh + coi source),
+thêm URL / fetch live / xóa cache, log server realtime.
 
 ## API cho Client
 | Method | URL | Tác dụng |

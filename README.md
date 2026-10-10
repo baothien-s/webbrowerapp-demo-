@@ -4,7 +4,7 @@
 
 | Version | Thư mục | Chạy |
 |---|---|---|
-| 1. Server lưu trữ web (preload facebook / shopee / alibaba) | `WebServer/` | `run_server.bat` (port 8080) |
+| 1. Server lưu trữ web (preload facebook / shopee / alibaba) | `WebServer/` | `run_server_gui.bat` (GUI quản lý) hoặc `run_server.bat` (console) |
 | 2. Client kết nối server, coi source web | `WebClient/` | `run_client.bat` (bật server trước) |
 
 ## Chạy nhanh

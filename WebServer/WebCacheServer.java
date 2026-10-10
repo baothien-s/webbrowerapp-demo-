@@ -16,6 +16,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,6 +44,14 @@ public class WebCacheServer {
     static int PORT = 8080;
     static final Path STORAGE = Paths.get("storage");
     static final Map<String, CachedPage> CACHE = new ConcurrentHashMap<>();
+    static volatile HttpServer RUNNING = null;
+
+    // Thong ke cho GUI quan ly
+    static final AtomicLong REQ_TOTAL = new AtomicLong();
+    static final AtomicLong REQ_HIT = new AtomicLong();
+    static final AtomicLong REQ_MISS = new AtomicLong();
+    /** GUI gan hook nay de nhan log realtime (ServerManagerGUI) */
+    static volatile Consumer<String> LOG_HOOK = null;
 
     static final HttpClient HTTP = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
@@ -63,11 +73,24 @@ public class WebCacheServer {
 
     public static void main(String[] args) throws Exception {
         if (args.length > 0) { try { PORT = Integer.parseInt(args[0]); } catch (Exception ignored) {} }
-        Files.createDirectories(STORAGE);
+        startServer(PORT);
+        System.out.println("=== WebCacheServer dang chay ===");
+        System.out.println("Dashboard: http://localhost:" + PORT + "/");
+        System.out.println("API list : http://localhost:" + PORT + "/api/webs");
+        System.out.println("Cache hien co (" + CACHE.size() + "):");
+        CACHE.keySet().forEach(u -> System.out.println("  - " + u));
+    }
+
+    // ================= DIEU KHIEN CHO GUI (ServerManagerGUI) =================
+
+    /** Khoi dong server trong chinh JVM (GUI goi ham nay, khong can tien trinh rieng) */
+    public static synchronized HttpServer startServer(int port) throws java.io.IOException {
+        if (RUNNING != null) return RUNNING;
+        PORT = port;
+        try { Files.createDirectories(STORAGE); } catch (Exception ignored) {}
         loadFromDisk();
         preloadDemoWebs(); // luon dam bao co facebook / shopee / alibaba
-
-        HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
+        HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.createContext("/", WebCacheServer::handleDashboard);
         server.createContext("/view", WebCacheServer::handleView);
         server.createContext("/api/webs", WebCacheServer::handleList);
@@ -76,11 +99,38 @@ public class WebCacheServer {
         server.createContext("/api/cache", WebCacheServer::handleDelete);
         server.setExecutor(Executors.newFixedThreadPool(10));
         server.start();
-        System.out.println("=== WebCacheServer dang chay ===");
-        System.out.println("Dashboard: http://localhost:" + PORT + "/");
-        System.out.println("API list : http://localhost:" + PORT + "/api/webs");
-        System.out.println("Cache hien co (" + CACHE.size() + "):");
-        CACHE.keySet().forEach(u -> System.out.println("  - " + u));
+        RUNNING = server;
+        log("Server START port " + port + " (" + CACHE.size() + " web trong kho)");
+        return server;
+    }
+
+    public static synchronized void stopServer() {
+        if (RUNNING != null) {
+            RUNNING.stop(0);
+            RUNNING = null;
+            log("Server STOP");
+        }
+    }
+
+    public static boolean isRunning() { return RUNNING != null; }
+
+    /** Danh sach cache sap xep theo URL (GUI hien thi) */
+    public static List<CachedPage> snapshot() {
+        List<CachedPage> list = new ArrayList<>(CACHE.values());
+        list.sort(Comparator.comparing(p -> p.url));
+        return list;
+    }
+
+    public static boolean deleteUrl(String url) {
+        CachedPage removed = CACHE.remove(normalize(url));
+        try { Files.deleteIfExists(STORAGE.resolve(fileName(normalize(url)))); } catch (Exception ignored) {}
+        if (removed != null) log("GUI xoa cache: " + normalize(url));
+        return removed != null;
+    }
+
+    public static String statsLine() {
+        return "Requests: " + REQ_TOTAL.get() + " | HIT: " + REQ_HIT.get()
+             + " | MISS: " + REQ_MISS.get() + " | Dang luu: " + CACHE.size() + " web";
     }
 
     // ================= HANDLERS =================
@@ -155,6 +205,7 @@ public class WebCacheServer {
             ex.getResponseHeaders().set("X-Saved-At", hit.savedAt);
             ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             send(ex, 200, "text/html; charset=utf-8", hit.html);
+            REQ_HIT.incrementAndGet();
             log("CACHE HIT  " + key);
             return;
         }
@@ -165,6 +216,7 @@ public class WebCacheServer {
             ex.getResponseHeaders().set("X-Source", "live");
             ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
             send(ex, 200, "text/html; charset=utf-8", f.html);
+            REQ_MISS.incrementAndGet();
             log("CACHE MISS (da tai live + luu) " + key + " status=" + f.status);
             return;
         }
@@ -338,6 +390,7 @@ public class WebCacheServer {
     }
 
     static void send(HttpExchange ex, int status, String contentType, String body) throws java.io.IOException {
+        REQ_TOTAL.incrementAndGet();
         byte[] data = body.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", contentType);
         ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
@@ -354,5 +407,10 @@ public class WebCacheServer {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
     }
-    static void log(String m) { System.out.println("[" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")) + "] " + m); }
+    static void log(String m) {
+        String line = "[" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")) + "] " + m;
+        System.out.println(line);
+        Consumer<String> hook = LOG_HOOK;
+        if (hook != null) { try { hook.accept(line); } catch (Exception ignored) {} }
+    }
 }
